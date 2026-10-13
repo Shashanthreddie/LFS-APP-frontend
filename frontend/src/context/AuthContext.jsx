@@ -2,7 +2,7 @@
    @ This file describes what AuthState we are in and what to do
 */
 
-import { createContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../services/authService';
 
 export const AuthContext = createContext();
@@ -21,11 +21,6 @@ export function AuthProvider({ children }) {
     error: null,
   });
 
-  // backendReady: true once ANY network response (200, 401, or guest session) arrives from the backend.
-  // Used by ServerWakeOverlay to know when the Render cold start is complete.
-  const [backendReady, setBackendReady] = useState(false);
-  const backendReadyRef = useRef(false); // ref to avoid stale closure in polling
-
   // Initialize auth state on mount (with optimistic JWT decode + background verification)
   useEffect(() => {
     const initializeAuth = async () => {
@@ -41,21 +36,11 @@ export function AuthProvider({ children }) {
           error: null,
         });
 
-        // Mark backend as ready — we either decoded a JWT optimistically (backend may still be
-        // waking up) or successfully hit the server. The overlay handles the actual readiness check.
-        if (!backendReadyRef.current) {
-          backendReadyRef.current = true;
-          setBackendReady(true);
-        }
-
-        // If this was an optimistic JWT decode (no server call yet),
-        // verify with the backend in the background using retries.
-        // This handles Render cold starts where the server needs ~30-60s to spin up.
+        // If this was an optimistic JWT decode (no server call yet), verify with backend
         if (session.optimistic) {
-          verifyInBackground(); // verify token in the background so the user doesn't have to look at a boring spinner
+          verifyInBackground();
         }
       } else if (session.type === 'guest') {
-        // Guest session validated with backend — server is awake
         const limits = await authService.getLimits();
         setAuthState({
           type: 'guest',
@@ -64,12 +49,7 @@ export function AuthProvider({ children }) {
           limits,
           error: null,
         });
-        if (!backendReadyRef.current) {
-          backendReadyRef.current = true;
-          setBackendReady(true);
-        }
       } else {
-        // 'new' user — backend may or may not be awake; the overlay will poll independently
         setAuthState({
           type: 'new',
           user: null,
@@ -80,18 +60,15 @@ export function AuthProvider({ children }) {
       }
     };
 
-    // Background verification: retries GET /auth/me with backoff for Render cold starts.
-    // Runs silently — the user already sees their signed-in UI from the optimistic decode.
+    // Background verification: confirms GET /auth/me with the server
     const verifyInBackground = async () => {
       const verified = await authService.verifySessionWithRetry();
 
       if (verified === null) {
-        // Backend unreachable after all retries — keep optimistic state as-is
         return;
       }
 
       if (verified.type === 'signed-in') {
-        // Server confirmed — update with authoritative server data + fresh limits
         const limits = await authService.getLimits();
         setAuthState(prev => ({
           ...prev,
@@ -99,7 +76,6 @@ export function AuthProvider({ children }) {
           limits,
         }));
       } else if (verified.type === 'invalid') {
-        // Server says token is invalid — downgrade to 'new'
         setAuthState({
           type: 'new',
           user: null,
@@ -180,18 +156,8 @@ export function AuthProvider({ children }) {
     setAuthState((prev) => ({ ...prev, error: null }));
   }, []);
 
-  // Called by ServerWakeOverlay when its own polling confirms the server is awake.
-  const markBackendReady = useCallback(() => {
-    if (!backendReadyRef.current) {
-      backendReadyRef.current = true;
-      setBackendReady(true);
-    }
-  }, []);
-
   const value = { //exporting the state and functions to the rest of the app.
     ...authState,
-    backendReady,
-    markBackendReady,
     startAsGuest,
     login,
     register,
