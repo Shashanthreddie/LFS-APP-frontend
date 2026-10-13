@@ -98,44 +98,32 @@ export const authService = {
     return { type: 'new' };
   },
 
-  // Verify session with backend, retrying for Render cold-start scenarios.
+  // Verify session with backend directly
   // Returns: { type: 'signed-in', user } | { type: 'invalid' } | null (unreachable)
-  async verifySessionWithRetry(maxRetries = 5, delayMs = 4000) {
+  async verifySessionWithRetry() {
     const token = localStorage.getItem('lfs_jwt_token');
     if (!token) return { type: 'invalid' };
 
     const headers = { 'Authorization': `Bearer ${token}` };
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) { // Render backend goes to sleep after 15 mins. Retrying here because cold starts take forever to wake up
-      try {
-        const response = await fetch(`${API_BASE}/auth/me`, {
-          method: 'GET',
-          headers,
-        });
+    try {
+      const response = await fetch(`${API_BASE}/auth/me`, {
+        method: 'GET',
+        headers,
+      });
 
-        if (response.ok) {
-          // Server confirmed: token is valid
-          return { type: 'signed-in', user: await response.json() };
-        } else if (response.status === 401) {
-          // Server confirmed: token is invalid — clear it
-          localStorage.removeItem('lfs_jwt_token');
-          return { type: 'invalid' };
-        }
-        // 403, 5xx — server might be waking up, retry
-        console.warn(`Session verify attempt ${attempt + 1}/${maxRetries + 1}: status ${response.status}`);
-      } catch (error) {
-        // Network error — server is likely still spinning up
-        console.warn(`Session verify attempt ${attempt + 1}/${maxRetries + 1}: ${error.message}`);
+      if (response.ok) {
+        // Server confirmed: token is valid
+        return { type: 'signed-in', user: await response.json() };
+      } else if (response.status === 401) {
+        // Server confirmed: token is invalid — clear it
+        localStorage.removeItem('lfs_jwt_token');
+        return { type: 'invalid' };
       }
-
-      // Wait before next retry (linear backoff: 4s, 8s, 12s, 16s, 20s)
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
-      }
+    } catch (error) {
+      console.warn(`Session verification error: ${error.message}`);
     }
 
-    // All retries exhausted — backend seems unreachable
-    // Return null so the caller knows to keep the optimistic state
     return null;
   },
 
