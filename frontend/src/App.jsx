@@ -13,26 +13,17 @@ import Download from './pages/Download';
 import SignIn from './pages/SignIn';
 import Register from './pages/Register';
 import WelcomeModal from './components/WelcomeModal';
-import ServerWakeOverlay from './components/ServerWakeOverlay';
 import './styles/globals.css';
 
 function AppContent() {
-  const { type, backendReady, markBackendReady } = useAuth();
+  const { type } = useAuth();
   const location = useLocation();
   const isAuthRoute = location.pathname === '/signin' || location.pathname === '/register'; // checks if user is on login/register pages... don't want to show the welcome modal here
   const shouldShowWelcomeModal = type === 'new' && !authService.isWelcomeSeen() && !isAuthRoute;  
   // Shows Welcome modal only for first-time visitors on non-auth routes. (logic)
 
-  // Show the ServerWakeOverlay on any non-auth page until the backend confirms it's awake.
-  // This gracefully handles Render free-tier cold starts (~30-60s sleep after 15min inactivity).
-  const shouldShowWakeOverlay = !backendReady && !isAuthRoute;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Cold-start overlay: shows a pulsing "Connecting to secure server" animation while
-          the Render free-tier backend is waking up. Polls every 5s; dismisses on first 200/401. */}
-      {shouldShowWakeOverlay && <ServerWakeOverlay onServerReady={markBackendReady} />}
-
       {/* Actually Loading the Welcome Modal (code)*/}
       {shouldShowWelcomeModal && <WelcomeModal />}
 
